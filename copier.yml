@@ -1,0 +1,175 @@
+astro_apps:
+  type: str
+  help: "Name of your Astro application(s) (space-separated)?"
+  default: "frontend"
+
+django_apps:
+  type: str
+  help: "Name of your Django application(s) (space-separated)?"
+  default: "backend"
+
+apps:
+  when: false
+  type: yaml
+  help: |
+    Combined list of all applications and their types (e.g.,
+    [
+      {"name": "frontend", "type": "astro"},
+      {"name": "backend", "type": "django"}
+    ]
+  default: |-
+    [
+      {%- set all_apps = [] -%}
+      {%- for app in astro_apps.split() if app %}
+        {%- set _ = all_apps.append('{"name": "' ~ app ~ '", "type": "astro"}') %}
+      {%- endfor %}
+      {%- for app in django_apps.split() if app %}
+        {%- set _ = all_apps.append('{"name": "' ~ app ~ '", "type": "django"}') %}
+      {%- endfor %}
+      {{ all_apps | join(',\n  ') }}
+    ]
+
+_subdirectory: "templates"
+
+_tasks:
+    # Verify that all the expected templates are present
+    - when: "{{ _copier_operation == 'copy' }}"
+      command: |
+        missing=""
+        missing_templates=""
+        {% for app in apps %}
+        if [ ! -d "../hello-{{ app.type }}" ]; then
+          missing=1
+          missing_templates="$missing_templates ../hello-{{ app.type }}"
+        fi
+        {% endfor %}
+        if [ "$missing" ]; then
+          echo "Error: Missing templates."
+          for template in $missing_templates; do
+            echo "  $template"
+          done
+          exit 1
+        fi
+
+    # Run copier for each application using the appropriate template
+    - when: "{{ _copier_operation == 'copy' }}"
+      command: |
+        {% for app in apps %}
+        uvx copier copy --trust -r HEAD \
+                -d application_name='{{app.name}}' \
+                ../hello-{{app.type}} ./{{app.name}}
+        {% endfor %}
+
+    # Run copier with a template for a Terraform module that deploys to Cloud.gov 
+    - when: "{{ _copier_operation == 'copy' }}"
+      command: |
+        uvx copier copy --trust -r HEAD \
+                -d applications='{{ apps |replace("'", '"') }}' \
+                ../hello-terraform-cloudgov terraform
+
+# Update the application subprojects 
+# See https://github.com/orgs/copier-org/discussions/2200
+_migrations:
+  # Commit the current state before updating subprojects; there may  
+  # be updates from the top-level update operation
+  - command: |
+      if git diff --quiet && git diff --cached --quiet; then
+        echo "[INFO] No changes from the top-level update to commit before migration."
+      else
+        git add -A
+        git commit -m "[copier-migration] Top-level update snapshot"
+        echo "[INFO] Top-level snapshot committed."
+      fi
+
+  # Update each subproject, committing after each, rollback on error
+  - command: |
+      failed=0
+      subprojects=""
+      {% for app in apps %}
+        subprojects="$subprojects {{app.name}}"
+      {% endfor %}
+      subprojects="$subprojects terraform"
+      # Find the commit before the first migration commit (for rollback)
+      first_migration_commit=$(git log --grep='^\[copier-migration\]' --format='%H' | tail -n1)
+      if [ -z "$first_migration_commit" ]; then
+        rollback_commit=""
+      else
+        rollback_commit=$(git log --format='%H' $first_migration_commit^ | head -n1)
+        if [ -z "$rollback_commit" ]; then
+          rollback_commit=$(git rev-list --max-parents=0 HEAD)
+        fi
+      fi
+      for sub in $subprojects; do
+        if [ ! -d "$sub" ]; then
+          echo "[WARN] $sub directory missing, skipping update."
+          continue
+        fi
+        if [ ! -f "$sub/.copier-answers.yml" ]; then
+          echo "[WARN] $sub/.copier-answers.yml missing, skipping update."
+          continue
+        fi
+        echo "[INFO] Updating $sub..."
+        if [ "$sub" = "terraform" ]; then
+          # Generate valid YAML for applications argument and use a heredoc for shell safety
+          {% set applications_list = [] %}
+          {% for app in apps %}
+            {% set _ = applications_list.append({'name': app.name, 'type': app.type}) %}
+          {% endfor %}
+          applications_yaml="{{ applications_list | to_nice_yaml }}"
+          update_cmd="uvx copier update -r HEAD --trust -d applications=\"$applications_yaml\" terraform"
+          echo Update command: $update_cmd
+        else
+          update_cmd="uvx copier update -r HEAD --trust -d application_name='$sub' '$sub'"
+        fi
+        if ! eval "$update_cmd"; then
+          echo "[ERROR] Update failed for $sub. Rolling back."
+          if [ -n "$rollback_commit" ]; then
+            git reset --hard $rollback_commit
+            echo "[INFO] Rolled back to pre-migration commit $rollback_commit."
+          else
+            echo "[WARN] Could not determine rollback commit. No changes reverted."
+          fi
+          failed=1
+          break
+        fi
+        if ! git diff --quiet || ! git diff --cached --quiet; then
+          git add -A
+          git commit -m "[copier-migration] Updated $sub"
+          echo "[INFO] Update for $sub committed."
+        fi
+      done
+      if [ "$failed" = "1" ]; then
+        echo "[FATAL] One or more subproject updates failed. See above for details."
+        exit 1
+      fi
+
+  # If all updates succeeded, squash migration commits (including the initial snapshot, if any) and unstage for review
+  - command: |
+      # Find the last non-migration commit BEFORE the first migration commit in this run
+      first_migration_commit=$(git log --grep='^\[copier-migration\]' --format='%H' | tail -n1)
+      if [ -z "$first_migration_commit" ]; then
+        echo "[INFO] No migration commits found. Skipping squash."
+        exit 0
+      fi
+      last_user_commit=$(git log --format='%H' $first_migration_commit^ | head -n1)
+      if [ -z "$last_user_commit" ]; then
+        echo "[INFO] No user commits found before migration. Squashing to root."
+        last_user_commit=$(git rev-list --max-parents=0 HEAD)
+      fi
+      # Count migration commits
+      migration_count=$(git log --pretty=oneline $last_user_commit..HEAD | grep '\[copier-migration\]' | wc -l | tr -d ' ')
+      if [ "$migration_count" -gt 0 ]; then
+        echo "[INFO] Squashing $migration_count migration commits (including initial snapshot)."
+        git reset --soft $last_user_commit
+        echo "[INFO] Migration commits squashed."
+        git reset
+        echo "[INFO] Changes unstaged for user review."
+      else
+        echo "[INFO] No migration commits to squash."
+      fi
+      echo "[INFO] All subprojects updated successfully."
+
+# TODO: 
+# - roll up .gitignore files, apply a diff to .gitignore
+# - roll up pre-commit files, apply a diff to .pre-commit-config.yaml
+

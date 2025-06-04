@@ -1,0 +1,3 @@
+- [ ] roll up .gitignores
+- [ ] roll up .githooks
+- [ ] link .github/workflows files
