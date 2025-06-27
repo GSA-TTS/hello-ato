@@ -15,12 +15,12 @@ This template supports scaffolding and maintaining a federal system, configured 
 
 ### Planned (_help wanted!_ 😘 )
 
-* Workflows for CI/CD
+* Automation for CI/CD
   * GitHub Actions 
   * GitLab CI 
-* Moar application frameworks
-  * SpiffWorkflow
-  * Supabase
+* Turnkey capabilities 
+  * Workflow service (via SpiffWorkflow)
+  * Backend service (via Supabase)
 * Proxies egress traffic
 * Drains logs to off-site ELPs
   * ELK (ingested from S3 bucket)
@@ -30,8 +30,6 @@ This template supports scaffolding and maintaining a federal system, configured 
   * Auto-generates Mermaid diagrams
 * Captures auditing artifacts (using auditree)
 * Moar application frameworks
-  * workflow (via SpiffWorkflow)
-  * db-as-backend (via Supabase)
   * Drupal
   * Django
   * Rails
@@ -42,19 +40,22 @@ This template supports scaffolding and maintaining a federal system, configured 
 
 ## Usage
 
-### Creating an application
+### Creating a system
 1. [Install uv](https://docs.astral.sh/uv/getting-started/installation/) (if you haven't already)
-2. Generate a new project...\
+2. Run copier...\
   ...from your local clone of the repository:
    ```sh
-   uvx copier copy --trust ./hello-astro <destination-folder>
+   uvx copier copy --trust ./hello-ato <destination-folder>
    ```
    ...or directly from the repository on GitHub:
    ```sh
-   uvx copier copy --trust gh:GSA-TTS/hello-astro <destination-folder>
+   uvx copier copy --trust gh:GSA-TTS/hello-ato <destination-folder>
    ```
-3. Answer the prompts:
-   - Select which Astro template to use (`astro-plain` or `pages-site-gantry`).
+3. Name the apps in your system
+
+4. Answer questions about the apps as needed. If you don't know the answer right then, just accept the defaults. You can always update the app with later with different answers.
+
+Follow instructions in the README.md in the destination folder to work with the new system.
 
 ### Updating the application later
 
@@ -77,12 +78,8 @@ If you'd like to...
 
 To learn how updating works and what additional options are available, read [the Copier `update` documentation](https://copier.readthedocs.io/en/stable/updating/) .
 
-Follow instructions in the README.md in the destination folder to work with the new site.
-
 ## Directory Structure
-- `templates/astro-plain/`: Template for the minimal Astro starter
-- `templates/astro-uswds`: Minimal template styles with USWDS and oriented toward 21st Century IDEA requirements
-- `templates/pages-site-gantry/`: cg-pages' advanced starter with extra features, USWDS, etc.
+- `templates/`: Template for the monorepo
 
 ## Developing
 
