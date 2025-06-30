@@ -30,7 +30,7 @@ apps:
     ]
 
 _subdirectory: "templates"
-
+_answers_file: ".copier-answers.hello-ato.yml"
 _tasks:
     # Verify that all the expected templates are present
     - when: "{{ _copier_operation == 'copy' }}"
@@ -57,7 +57,7 @@ _tasks:
         {% for app in apps %}
         uvx copier copy --trust -r HEAD \
                 -d application_name='{{app.name}}' \
-                ../hello-{{app.type}} ./{{app.name}}
+                ../hello-{{app.type}} .
         {% endfor %}
 
     # Run copier with a template for a Terraform module that deploys to Cloud.gov 
@@ -65,7 +65,7 @@ _tasks:
       command: |
         uvx copier copy --trust -r HEAD \
                 -d applications='{{ apps |replace("'", '"') }}' \
-                ../hello-terraform-cloudgov terraform
+                ../hello-terraform-cloudgov .
 
 # Update the application subprojects 
 # See https://github.com/orgs/copier-org/discussions/2200
@@ -110,16 +110,15 @@ _migrations:
         fi
         echo "[INFO] Updating $sub..."
         if [ "$sub" = "terraform" ]; then
-          # Generate valid YAML for applications argument and use a heredoc for shell safety
           {% set applications_list = [] %}
           {% for app in apps %}
             {% set _ = applications_list.append({'name': app.name, 'type': app.type}) %}
           {% endfor %}
           applications_yaml="{{ applications_list | to_nice_yaml }}"
-          update_cmd="uvx copier update -r HEAD --trust -d applications=\"$applications_yaml\" terraform"
+          update_cmd="uvx copier update -r HEAD --trust -a .copier-answers.hello-terraform-cloudgov.yml -d applications=\"$applications_yaml\" ."
           echo Update command: $update_cmd
         else
-          update_cmd="uvx copier update -r HEAD --trust -d application_name='$sub' '$sub'"
+          update_cmd="uvx copier update -r HEAD --trust -a .copier-answers.${sub}.yml -d application_name='${sub}' ."
         fi
         if ! eval "$update_cmd"; then
           echo "[ERROR] Update failed for $sub. Rolling back."
